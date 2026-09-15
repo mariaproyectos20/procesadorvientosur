@@ -32,8 +32,9 @@ function App() {
   const [fileName, setFileName] = useState<string | undefined>(undefined);
   const [customPresets, setCustomPresets] = useState<Preset[]>([]);
   const [sourceFullscreen, setSourceFullscreen] = useState(false);
+  const [selectedInputDeviceId, setSelectedInputDeviceId] = useState('');
 
-  const { levels, padPlayback, libraryPlayback, loadFile, pauseLibrary, resumeLibrary, seekLibrary, stopLibrary, setLibraryVolume, toggleLibraryMute, nudgeLibrary, playPad, pausePad, resumePad, seekPad, stopPad, startMic, startTone, stop, applyState, ensureContext } = useAudioEngine();
+  const { levels, padPlayback, libraryPlayback, audioInputDevices, refreshAudioInputDevices, loadFile, pauseLibrary, resumeLibrary, seekLibrary, stopLibrary, setLibraryVolume, toggleLibraryMute, nudgeLibrary, playPad, pausePad, resumePad, seekPad, stopPad, startMic, startTone, stop, applyState, ensureContext } = useAudioEngine();
   const stateRef = useRef(state);
   stateRef.current = state;
 
@@ -91,8 +92,8 @@ function App() {
   const handleStartMic = useCallback((s: ProcessorState) => {
     setSourceType('mic');
     setFileName(undefined);
-    startMic(s);
-  }, [startMic]);
+    startMic(s, selectedInputDeviceId || undefined);
+  }, [selectedInputDeviceId, startMic]);
 
   const handleStartTone = useCallback((s: ProcessorState) => {
     setSourceType('tone');
@@ -128,6 +129,10 @@ function App() {
           sourceType={sourceType}
           onSourceTypeChange={() => {}}
           onStartMic={handleStartMic}
+          audioInputDevices={audioInputDevices}
+          selectedInputDeviceId={selectedInputDeviceId}
+          onSelectedInputDeviceChange={setSelectedInputDeviceId}
+          onRefreshAudioInputDevices={() => { void refreshAudioInputDevices(); }}
           onStartTone={handleStartTone}
           onPlayPad={handlePlayPad}
           onPlayLibrary={(file) => {

@@ -34,6 +34,11 @@ export interface LibraryPlaybackState {
   ended: boolean;
 }
 
+export interface AudioInputDevice {
+  deviceId: string;
+  label: string;
+}
+
 const SPECTRUM_BINS = 128;
 const WAVEFORM_POINTS = 200;
 
@@ -85,6 +90,7 @@ export function useAudioEngine() {
     muted: false,
     ended: false,
   });
+  const [audioInputDevices, setAudioInputDevices] = useState<AudioInputDevice[]>([]);
 
   const rafRef = useRef<number | null>(null);
 
@@ -96,6 +102,19 @@ export function useAudioEngine() {
       audioCtxRef.current.resume();
     }
     return audioCtxRef.current;
+  }, []);
+
+  const refreshAudioInputDevices = useCallback(async () => {
+    if (!navigator.mediaDevices?.enumerateDevices) return [];
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const inputs = devices
+      .filter((device) => device.kind === 'audioinput')
+      .map((device, index) => ({
+        deviceId: device.deviceId,
+        label: device.label || `Entrada de audio ${index + 1}`,
+      }));
+    setAudioInputDevices(inputs);
+    return inputs;
   }, []);
 
   const buildChain = useCallback(() => {
@@ -522,27 +541,37 @@ export function useAudioEngine() {
   );
 
   const startMic = useCallback(
-    async (state: ProcessorState) => {
+    async (state: ProcessorState, deviceId?: string) => {
       const ctx = ensureContext();
       stopAll();
 
       try {
         if (!navigator.mediaDevices?.getUserMedia) throw new Error('El navegador no ofrece captura de audio');
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
+            autoGainControl: false,
+            echoCancellation: false,
+            noiseSuppression: false,
+            channelCount: { ideal: 2 },
+          },
+        });
         streamRef.current = stream;
         const source = ctx.createMediaStreamSource(stream);
         sourceRef.current = source;
+
+        await refreshAudioInputDevices();
 
         buildChain();
         applyState(state);
         startLevelLoop();
         setLevels((prev) => ({ ...prev, isPlaying: true }));
       } catch (error) {
-        console.error('No se pudo iniciar el micrófono', error);
+        console.error('No se pudo iniciar la entrada de audio', error);
         setLevels((prev) => ({ ...prev, isPlaying: false }));
       }
     },
-    [ensureContext, stopAll, buildChain, applyState, startLevelLoop]
+    [ensureContext, stopAll, buildChain, applyState, startLevelLoop, refreshAudioInputDevices]
   );
 
   const startTone = useCallback(
@@ -598,5 +627,5 @@ export function useAudioEngine() {
     };
   }, [stopAll]);
 
-  return { levels, padPlayback, libraryPlayback, loadFile, pauseLibrary, resumeLibrary, seekLibrary, stopLibrary, setLibraryVolume, toggleLibraryMute, nudgeLibrary, playPad, pausePad, resumePad, seekPad, stopPad, startMic, startTone, stop, applyState, ensureContext };
+  return { levels, padPlayback, libraryPlayback, audioInputDevices, refreshAudioInputDevices, loadFile, pauseLibrary, resumeLibrary, seekLibrary, stopLibrary, setLibraryVolume, toggleLibraryMute, nudgeLibrary, playPad, pausePad, resumePad, seekPad, stopPad, startMic, startTone, stop, applyState, ensureContext };
 }

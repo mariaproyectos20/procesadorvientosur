@@ -42,7 +42,7 @@ export function Header({ state, levels, sourceType }: HeaderProps) {
           <Signal size={12} className={levels.isPlaying ? 'text-emerald-400' : 'text-[#5d6570]'} />
           <span className="text-[9px] text-[#5d6570] uppercase">Fuente</span>
           <span className="font-mono text-[10px] font-bold" style={{ color: levels.isPlaying ? '#10b981' : '#5d6570' }}>
-            {levels.isPlaying ? sourceType.toUpperCase() : 'INACTIVO'}
+            {levels.isPlaying ? sourceType === 'mic' ? 'LINE IN' : sourceType.toUpperCase() : 'INACTIVO'}
           </span>
         </div>
 

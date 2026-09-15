@@ -9,6 +9,7 @@ export interface MusicTrack {
   name: string;
   type: string;
   file: File;
+  sourcePath?: string;
 }
 
 export interface MusicPlaylist {
@@ -32,17 +33,17 @@ function openDatabase(): Promise<IDBDatabase> {
 
 export async function loadMusicTracks(): Promise<MusicTrack[]> {
   const database = await openDatabase();
-  const records = await new Promise<Array<{ id: string; name: string; type: string; blob: Blob }>>((resolve, reject) => {
+  const records = await new Promise<Array<{ id: string; name: string; type: string; blob: Blob; sourcePath?: string }>>((resolve, reject) => {
     const request = database.transaction(TRACK_STORE, 'readonly').objectStore(TRACK_STORE).getAll();
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
   database.close();
-  return records.map((record) => ({ id: record.id, name: record.name, type: record.type, file: new File([record.blob], record.name, { type: record.type || record.blob.type }) }));
+  return records.map((record) => ({ id: record.id, name: record.name, type: record.type, sourcePath: record.sourcePath, file: new File([record.blob], record.name, { type: record.type || record.blob.type }) }));
 }
 
-export async function saveMusicTrack(file: File): Promise<MusicTrack> {
-  const track = { id: `${file.name}-${file.size}-${file.lastModified}`, name: file.name, type: file.type, file };
+export async function saveMusicTrack(file: File, sourcePath?: string): Promise<MusicTrack> {
+  const track = { id: `${sourcePath ?? file.name}-${file.size}-${file.lastModified}`, name: file.name, type: file.type, sourcePath, file };
   const database = await openDatabase();
   await new Promise<void>((resolve, reject) => {
     const request = database.transaction(TRACK_STORE, 'readwrite').objectStore(TRACK_STORE).put({ ...track, blob: file });
@@ -95,18 +96,34 @@ export async function deleteMusicPlaylist(playlistId: string): Promise<void> {
 }
 
 export async function syncPhoneMusicFolder(): Promise<MusicTrack[]> {
-  const result = await Filesystem.readdir({ path: 'Music', directory: Directory.ExternalStorage });
   const imported: MusicTrack[] = [];
-  for (const entry of result.files) {
-    if (entry.type === 'directory' || !/\.(mp3|wav|ogg|m4a|aac|flac)$/i.test(entry.name)) continue;
-    try {
-      const data = await Filesystem.readFile({ path: `Music/${entry.name}`, directory: Directory.ExternalStorage });
-      const binary = atob(typeof data.data === 'string' ? data.data : '');
-      const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
-      imported.push(await saveMusicTrack(new File([bytes], entry.name, { type: `audio/${entry.name.split('.').pop()}` })));
-    } catch {
-      // Ignore files Android cannot read and continue syncing the rest.
+
+  const scanDirectory = async (path: string): Promise<void> => {
+    const result = await Filesystem.readdir({ path, directory: Directory.ExternalStorage });
+    for (const entry of result.files) {
+      const entryPath = `${path}/${entry.name}`;
+      if (entry.type === 'directory') {
+        try {
+          await scanDirectory(entryPath);
+        } catch {
+          // Ignore folders Android cannot read and continue syncing the rest.
+        }
+        continue;
+      }
+
+      if (!/\.(mp3|wav|ogg|m4a|aac|flac)$/i.test(entry.name)) continue;
+      try {
+        const data = await Filesystem.readFile({ path: entryPath, directory: Directory.ExternalStorage });
+        const binary = atob(typeof data.data === 'string' ? data.data : '');
+        const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+        const mimeType = `audio/${entry.name.split('.').pop()?.toLowerCase() ?? 'mpeg'}`;
+        imported.push(await saveMusicTrack(new File([bytes], entry.name, { type: mimeType }), entryPath));
+      } catch {
+        // Ignore files Android cannot read and continue syncing the rest.
+      }
     }
-  }
+  };
+
+  await scanDirectory('Music');
   return imported;
 }
