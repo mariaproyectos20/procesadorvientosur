@@ -81,14 +81,17 @@ export function AudioSource({
   const [openPadMenu, setOpenPadMenu] = useState<string | null>(null);
   const [padMenuPosition, setPadMenuPosition] = useState({ top: 0, left: 0 });
   const [showPads, setShowPads] = useState(false);
+  const [padsFullscreen, setPadsFullscreen] = useState(false);
   const [showLibrary, setShowLibrary] = useState(false);
+  const [libraryFullscreen, setLibraryFullscreen] = useState(false);
   const [showLineInSettings, setShowLineInSettings] = useState(false);
+  const [lineInFullscreen, setLineInFullscreen] = useState(false);
   const trackLongPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suppressTrackClickRef = useRef(false);
   const trackPressStartRef = useRef<{ x: number; y: number } | null>(null);
   const [activePanel, setActivePanel] = useState(0);
   const [musicSearch, setMusicSearch] = useState('');
-  const [repeatLibrary, setRepeatLibrary] = useState(false);
+  const [repeatMode, setRepeatMode] = useState<'off' | 'all' | 'one'>('off');
   const [shuffleLibrary, setShuffleLibrary] = useState(false);
   const [musicTracks, setMusicTracks] = useState<MusicTrack[]>([]);
   const [musicPlaylists, setMusicPlaylists] = useState<MusicPlaylist[]>([]);
@@ -503,11 +506,31 @@ export function AudioSource({
 
   const clearQueue = () => setQueuedTrackIds([]);
 
+  const playVisibleTracks = useCallback((shuffle: boolean = false) => {
+    if (!visibleMusicTracks.length) return;
+    const orderedTracks = shuffle ? [...visibleMusicTracks].sort(() => Math.random() - 0.5) : [...visibleMusicTracks];
+    const [nextTrack, ...remaining] = orderedTracks;
+    if (!nextTrack) return;
+    setQueuedTrackIds(remaining.map((track) => track.id));
+    handleTrackPlay(nextTrack);
+  }, [handleTrackPlay, visibleMusicTracks]);
+
+  const cycleRepeatMode = useCallback(() => {
+    setRepeatMode((current) => current === 'off' ? 'all' : current === 'all' ? 'one' : 'off');
+  }, []);
+
   const playAdjacentTrack = useCallback((direction: -1 | 1) => {
     if (direction === 1 && queuedTracks.length) {
       const nextTrack = queuedTracks[0];
       setQueuedTrackIds((current) => current.slice(1));
       handleTrackPlay(nextTrack);
+      return;
+    }
+
+    const currentTrack = musicTracks.find((track) => track.name === libraryPlayback.fileName);
+    if (repeatMode === 'one' && currentTrack) {
+      markTrackAsPlayed(currentTrack);
+      onPlayLibrary(currentTrack.file);
       return;
     }
 
@@ -518,20 +541,74 @@ export function AudioSource({
       : currentIndex + direction;
     if (nextIndex < 0 || nextIndex >= visibleMusicTracks.length) return;
     handleTrackPlay(visibleMusicTracks[nextIndex]);
-  }, [libraryPlayback.fileName, handleTrackPlay, queuedTracks, shuffleLibrary, visibleMusicTracks]);
+  }, [handleTrackPlay, libraryPlayback.fileName, markTrackAsPlayed, musicTracks, onPlayLibrary, queuedTracks, repeatMode, shuffleLibrary, visibleMusicTracks]);
+
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return;
+
+    const title = currentTrackMeta.title === 'Sin reproducción' ? 'Biblioteca musical' : currentTrackMeta.title;
+    const artist = currentTrackMeta.artist === 'Desconocido' ? 'Viento Sur FM' : currentTrackMeta.artist;
+
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title,
+      artist,
+      album: 'Viento Sur FM',
+      artwork: [{ src: '/vite.svg', sizes: '96x96', type: 'image/svg+xml' }],
+    });
+
+    navigator.mediaSession.playbackState = libraryPlayback.isPlaying ? 'playing' : 'paused';
+
+    navigator.mediaSession.setActionHandler('play', () => {
+      if (libraryPlayback.fileName) {
+        onResumeLibrary();
+      }
+    });
+
+    navigator.mediaSession.setActionHandler('pause', () => {
+      if (libraryPlayback.fileName) {
+        onPauseLibrary();
+      }
+    });
+
+    navigator.mediaSession.setActionHandler('previoustrack', () => {
+      playAdjacentTrack(-1);
+    });
+
+    navigator.mediaSession.setActionHandler('nexttrack', () => {
+      playAdjacentTrack(1);
+    });
+
+    navigator.mediaSession.setActionHandler('seekbackward', () => {
+      onNudgeLibrary(-10);
+    });
+
+    navigator.mediaSession.setActionHandler('seekforward', () => {
+      onNudgeLibrary(10);
+    });
+
+    navigator.mediaSession.setActionHandler('stop', () => {
+      onStopLibrary();
+    });
+
+  }, [currentTrackMeta.artist, currentTrackMeta.title, libraryPlayback.fileName, libraryPlayback.isPlaying, onNudgeLibrary, onPauseLibrary, onResumeLibrary, onStopLibrary, playAdjacentTrack]);
 
   useEffect(() => {
     if (!libraryPlayback.ended || !libraryPlayback.fileName) return;
-    if (repeatLibrary) {
-      const currentTrack = musicTracks.find((track) => track.name === libraryPlayback.fileName);
+    const currentTrack = musicTracks.find((track) => track.name === libraryPlayback.fileName);
+    if (repeatMode === 'one' && currentTrack) {
+      markTrackAsPlayed(currentTrack);
+      onPlayLibrary(currentTrack.file);
+      return;
+    }
+    if (repeatMode === 'all') {
       if (currentTrack) {
         markTrackAsPlayed(currentTrack);
-        onPlayLibrary(currentTrack.file);
       }
+      playAdjacentTrack(1);
       return;
     }
     playAdjacentTrack(1);
-  }, [libraryPlayback.ended, libraryPlayback.fileName, markTrackAsPlayed, musicTracks, onPlayLibrary, playAdjacentTrack, repeatLibrary]);
+  }, [libraryPlayback.ended, libraryPlayback.fileName, markTrackAsPlayed, musicTracks, onPlayLibrary, playAdjacentTrack, repeatMode]);
 
   useEffect(() => {
     if (!openTrackMenu) return;
@@ -732,11 +809,17 @@ export function AudioSource({
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           <button
             onClick={() => setShowPads((visible) => {
-              if (!visible) {
+              const nextVisible = !visible;
+              if (!nextVisible) {
                 setActivePanel(0);
+                setPadsFullscreen(false);
                 setShowLibrary(false);
+                return false;
               }
-              return !visible;
+              setActivePanel(0);
+              setPadsFullscreen(true);
+              setShowLibrary(false);
+              return true;
             })}
             className={`group relative overflow-hidden rounded-xl border p-2.5 text-left transition-all duration-200 ${showPads ? 'border-cyan-400/60 bg-gradient-to-br from-cyan-400/15 via-cyan-400/5 to-[#0f1720] shadow-[0_0_24px_rgba(34,211,238,0.12)]' : 'border-[#2a3038] bg-[#0d1117] hover:border-cyan-400/40 hover:bg-[#111a22]'}`}
           >
@@ -748,8 +831,15 @@ export function AudioSource({
           </button>
           <button
             onClick={() => setShowLibrary((visible) => {
-              if (!visible) setShowPads(false);
-              return !visible;
+              const nextVisible = !visible;
+              if (!nextVisible) {
+                setLibraryFullscreen(false);
+                setShowPads(false);
+                return false;
+              }
+              setShowPads(false);
+              setLibraryFullscreen(true);
+              return true;
             })}
             className={`group relative overflow-hidden rounded-xl border p-2.5 text-left transition-all duration-200 ${showLibrary ? 'border-emerald-400/60 bg-gradient-to-br from-emerald-400/15 via-emerald-400/5 to-[#0f1720] shadow-[0_0_24px_rgba(16,185,129,0.12)]' : 'border-[#2a3038] bg-[#0d1117] hover:border-emerald-400/40 hover:bg-[#101b1a]'}`}
           >
@@ -764,10 +854,17 @@ export function AudioSource({
               if (isPlaying && sourceType === 'mic') {
                 onStop();
                 setShowLineInSettings(false);
+                setLineInFullscreen(false);
                 return;
               }
-              setShowLineInSettings(true);
-              onStartMic(state);
+
+              const nextVisible = !showLineInSettings;
+              setShowLineInSettings(nextVisible);
+              setLineInFullscreen(nextVisible);
+
+              if (nextVisible) {
+                onStartMic(state);
+              }
             }}
             className={`group relative overflow-hidden rounded-xl border p-2.5 text-left transition-all duration-200 ${isPlaying && sourceType === 'mic' ? 'border-cyan-400/60 bg-gradient-to-br from-cyan-400/15 via-cyan-400/5 to-[#0f1720] shadow-[0_0_24px_rgba(34,211,238,0.12)]' : 'border-[#2a3038] bg-[#0d1117] hover:border-cyan-400/40 hover:bg-[#111a22]'}`}
           >
@@ -789,26 +886,33 @@ export function AudioSource({
           </button>
         </div>
 
-        {showLineInSettings && <div className="flex flex-col gap-2 rounded-lg border border-cyan-400/20 bg-cyan-400/5 p-2.5 sm:flex-row sm:items-center">
-          <div className="min-w-0 flex-1">
-            <span className="block text-[9px] font-bold uppercase tracking-wider text-cyan-300">Dispositivo de entrada</span>
-            <span className="block truncate text-[9px] text-[#7f8b98]">Selecciona la interfaz USB o Line In del teléfono</span>
+        {showLineInSettings && <div className={`${lineInFullscreen ? 'fixed inset-0 z-50 overflow-hidden bg-[#070b10]' : 'rounded-lg border border-cyan-400/20 bg-cyan-400/5'} p-3`}>
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <div className="min-w-0 flex-1">
+              <span className="block text-[9px] font-bold uppercase tracking-wider text-cyan-300">Dispositivo de entrada</span>
+              <span className="block truncate text-[9px] text-[#7f8b98]">Selecciona la interfaz USB o Line In del teléfono</span>
+            </div>
+            <button type="button" onClick={() => setLineInFullscreen((visible) => !visible)} className="rounded-md border border-[#353c46] bg-[#121519] p-1.5 text-[#9aa3af] transition hover:text-white" title={lineInFullscreen ? 'Salir de pantalla completa' : 'Abrir pantalla completa'}>
+              {lineInFullscreen ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+            </button>
           </div>
-          <select
-            value={selectedInputDeviceId}
-            onChange={(event) => onSelectedInputDeviceChange(event.target.value)}
-            className="min-w-0 rounded border border-[#2a3038] bg-[#121519] px-2 py-1.5 text-[10px] text-[#d5dbe3] outline-none focus:border-cyan-400/60 sm:max-w-[260px]"
-            aria-label="Dispositivo de entrada de audio"
-          >
-            <option value="">Entrada predeterminada del sistema</option>
-            {audioInputDevices.map((device) => <option key={device.deviceId} value={device.deviceId}>{device.label}</option>)}
-          </select>
-          <button type="button" onClick={onRefreshAudioInputDevices} title="Actualizar dispositivos de entrada" className="self-end rounded border border-cyan-400/30 bg-cyan-400/10 p-1.5 text-cyan-300 hover:bg-cyan-400/20 sm:self-auto">
-            <RefreshCw size={12} />
-          </button>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <select
+              value={selectedInputDeviceId}
+              onChange={(event) => onSelectedInputDeviceChange(event.target.value)}
+              className="min-w-0 rounded border border-[#2a3038] bg-[#121519] px-2 py-1.5 text-[10px] text-[#d5dbe3] outline-none focus:border-cyan-400/60 sm:max-w-[260px]"
+              aria-label="Dispositivo de entrada de audio"
+            >
+              <option value="">Entrada predeterminada del sistema</option>
+              {audioInputDevices.map((device) => <option key={device.deviceId} value={device.deviceId}>{device.label}</option>)}
+            </select>
+            <button type="button" onClick={onRefreshAudioInputDevices} title="Actualizar dispositivos de entrada" className="self-end rounded border border-cyan-400/30 bg-cyan-400/10 p-1.5 text-cyan-300 hover:bg-cyan-400/20 sm:self-auto">
+              <RefreshCw size={12} />
+            </button>
+          </div>
         </div>}
 
-        {showLibrary && <div className="rounded-2xl border border-[#2a3038] bg-[radial-gradient(circle_at_top,_rgba(34,211,238,0.08),_transparent_30%),_#0a0c10] p-3 shadow-[0_10px_30px_rgba(2,6,23,0.45)]">
+        {showLibrary && <div className={`${libraryFullscreen ? 'fixed inset-0 z-50 overflow-hidden bg-[#070b10]' : 'rounded-2xl border border-[#2a3038] bg-[radial-gradient(circle_at_top,_rgba(34,211,238,0.08),_transparent_30%),_#0a0c10]'} p-3 shadow-[0_10px_30px_rgba(2,6,23,0.45)]`}>
           <div className="flex items-center justify-between gap-2 mb-3">
             <div className="flex items-center gap-2">
               <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-cyan-400/40 bg-cyan-400/10 text-cyan-300">
@@ -820,6 +924,9 @@ export function AudioSource({
               </div>
             </div>
             <div className="flex gap-1.5">
+              <button type="button" onClick={() => setLibraryFullscreen((visible) => !visible)} className="rounded-md border border-[#353c46] bg-[#121519] p-1.5 text-[#9aa3af] transition hover:text-white" title={libraryFullscreen ? 'Salir de pantalla completa' : 'Abrir pantalla completa'}>
+                {libraryFullscreen ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+              </button>
               <button type="button" onClick={() => musicInputRef.current?.click()} className="rounded-md border border-cyan-400/40 bg-cyan-400/10 p-1.5 text-cyan-300 transition hover:bg-cyan-400/20" title="Importar canciones"><Upload size={12} /></button>
               <button type="button" onClick={handleSyncMusicFolder} className="rounded-md border border-emerald-400/40 bg-emerald-400/10 p-1.5 text-emerald-300 transition hover:bg-emerald-400/20" title="Sincronizar carpeta Music"><RefreshCw size={12} /></button>
               <button type="button" onClick={handleCreatePlaylist} className="rounded-md border border-[#353c46] bg-[#121519] p-1.5 text-[#9aa3af] transition hover:text-white" title="Crear lista"><ListPlus size={12} /></button>
@@ -831,6 +938,8 @@ export function AudioSource({
               <button type="button" onClick={() => setLibraryFilter('all')} className={`shrink-0 rounded-full border px-2.5 py-1 text-[9px] font-semibold uppercase tracking-wider transition ${libraryFilter === 'all' ? 'border-cyan-400/50 bg-cyan-400/15 text-cyan-300' : 'border-[#27313b] bg-[#121519] text-[#7f8b98]'}`}>Todos</button>
               <button type="button" onClick={() => setLibraryFilter('favorites')} className={`shrink-0 rounded-full border px-2.5 py-1 text-[9px] font-semibold uppercase tracking-wider transition ${libraryFilter === 'favorites' ? 'border-amber-400/50 bg-amber-400/15 text-amber-300' : 'border-[#27313b] bg-[#121519] text-[#7f8b98]'}`}>Favoritos</button>
               <button type="button" onClick={() => setLibraryFilter('recent')} className={`shrink-0 rounded-full border px-2.5 py-1 text-[9px] font-semibold uppercase tracking-wider transition ${libraryFilter === 'recent' ? 'border-emerald-400/50 bg-emerald-400/15 text-emerald-300' : 'border-[#27313b] bg-[#121519] text-[#7f8b98]'}`}>Recientes</button>
+              <button type="button" onClick={() => playVisibleTracks(false)} className="shrink-0 rounded-full border border-cyan-400/40 bg-cyan-400/10 px-2.5 py-1 text-[9px] font-semibold uppercase tracking-wider text-cyan-300 transition hover:bg-cyan-400/20">Reproducir todo</button>
+              <button type="button" onClick={() => playVisibleTracks(true)} className="shrink-0 rounded-full border border-violet-400/40 bg-violet-400/10 px-2.5 py-1 text-[9px] font-semibold uppercase tracking-wider text-violet-300 transition hover:bg-violet-400/20">Aleatorio</button>
             </div>
             <div className="flex gap-2 overflow-x-auto overflow-y-visible">
               <button type="button" onClick={() => setActivePlaylistId(null)} className={`shrink-0 rounded-full border px-2.5 py-1 text-[9px] font-semibold uppercase tracking-wider transition ${!activePlaylistId ? 'border-cyan-400/50 bg-cyan-400/15 text-cyan-300' : 'border-[#27313b] bg-[#121519] text-[#7f8b98]'}`}>Toda la música</button>
@@ -888,7 +997,9 @@ export function AudioSource({
                 <input type="range" min="0" max="1" step="0.01" value={libraryPlayback.muted ? 0 : libraryPlayback.volume} onChange={(event) => onSetLibraryVolume(Number(event.target.value))} className="slider-fancy min-w-0 flex-1" aria-label="Volumen de la biblioteca musical" />
                 <span className="text-[9px] font-mono text-[#5d6570]">{Math.round((libraryPlayback.muted ? 0 : libraryPlayback.volume) * 100)}%</span>
                 <button type="button" onClick={() => setShuffleLibrary((value) => !value)} title="Aleatorio" className={`rounded p-1.5 ${shuffleLibrary ? 'bg-cyan-400/20 text-cyan-300' : 'text-[#5d6570] hover:text-cyan-300'}`}><Shuffle size={12} /></button>
-                <button type="button" onClick={() => setRepeatLibrary((value) => !value)} title="Repetir lista" className={`rounded p-1.5 ${repeatLibrary ? 'bg-cyan-400/20 text-cyan-300' : 'text-[#5d6570] hover:text-cyan-300'}`}><Repeat size={12} /></button>
+                <button type="button" onClick={cycleRepeatMode} title={repeatMode === 'off' ? 'Repetición apagada' : repeatMode === 'all' ? 'Repetir toda la lista' : 'Repetir la pista actual'} className={`rounded p-1.5 ${repeatMode !== 'off' ? 'bg-cyan-400/20 text-cyan-300' : 'text-[#5d6570] hover:text-cyan-300'}`}>
+                  <Repeat size={12} className={repeatMode === 'one' ? 'fill-current' : ''} />
+                </button>
               </div>
             </div>
           )}
@@ -999,8 +1110,19 @@ export function AudioSource({
           </div>
         </div>}
 
-        {showPads && <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-2">
+        {showPads && <div className={`${padsFullscreen ? 'fixed inset-0 z-50 overflow-hidden bg-[#070b10]' : 'space-y-3'}`}>
+          {padsFullscreen && (
+            <div className="mb-3 flex items-center justify-between gap-2 px-1">
+              <div className="flex items-center gap-2">
+                <Music2 size={14} className="text-cyan-400" />
+                <span className="text-[10px] font-bold uppercase tracking-wider text-[#c7ced8]">Musicalizador Live</span>
+              </div>
+              <button type="button" onClick={() => setPadsFullscreen(false)} className="rounded-md border border-[#353c46] bg-[#121519] p-1.5 text-[#9aa3af] transition hover:text-white" title="Salir de pantalla completa">
+                <Minimize2 size={12} />
+              </button>
+            </div>
+          )}
+          <div className={`grid grid-cols-2 gap-2 ${padsFullscreen ? 'mx-auto max-w-3xl' : ''}`}>
             {[0, 1].map((panelIndex) => (
               <button
                 key={panelIndex}
@@ -1013,7 +1135,9 @@ export function AudioSource({
               </button>
             ))}
           </div>
-          {renderPadPanel(activePanel, padPlayback[activePanel])}
+          <div className={padsFullscreen ? 'pt-2' : ''}>
+            {renderPadPanel(activePanel, padPlayback[activePanel])}
+          </div>
         </div>}
 
         {isPlaying && (

@@ -13,6 +13,7 @@ dist/
 
 # Android and Gradle build outputs
 android/.gradle/
+android/local.properties
 android/build/
 android/app/build/
 android/capacitor-cordova-android-plugins/

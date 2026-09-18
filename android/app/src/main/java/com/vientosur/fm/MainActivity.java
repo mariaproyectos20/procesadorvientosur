@@ -12,16 +12,19 @@ public class MainActivity extends BridgeActivity {
 	@Override
 	public void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
-		requestMicrophonePermission();
+		requestAudioPermissions();
+		startService(new android.content.Intent(this, AudioPlaybackService.class));
 	}
 
-	private void requestMicrophonePermission() {
+	private void requestAudioPermissions() {
 		if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
 			java.util.ArrayList<String> permissions = new java.util.ArrayList<>();
 			if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) permissions.add(Manifest.permission.RECORD_AUDIO);
 			if (checkSelfPermission(Manifest.permission.MODIFY_AUDIO_SETTINGS) != PackageManager.PERMISSION_GRANTED) permissions.add(Manifest.permission.MODIFY_AUDIO_SETTINGS);
+			if (android.os.Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) permissions.add(Manifest.permission.POST_NOTIFICATIONS);
 			if (android.os.Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.READ_MEDIA_AUDIO") != PackageManager.PERMISSION_GRANTED) permissions.add("android.permission.READ_MEDIA_AUDIO");
 			if (android.os.Build.VERSION.SDK_INT < 33 && checkSelfPermission("android.permission.READ_EXTERNAL_STORAGE") != PackageManager.PERMISSION_GRANTED) permissions.add("android.permission.READ_EXTERNAL_STORAGE");
+			if (android.os.Build.VERSION.SDK_INT >= 31 && checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) permissions.add(Manifest.permission.BLUETOOTH_CONNECT);
 			if (!permissions.isEmpty()) requestPermissions(permissions.toArray(new String[0]), AUDIO_PERMISSION_REQUEST);
 		}
 	}
