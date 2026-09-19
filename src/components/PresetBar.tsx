@@ -1,4 +1,4 @@
-import { Sparkles, Guitar, Mic, Music, Radio, Library, Building2, Landmark, SlidersHorizontal, Save, RotateCcw } from 'lucide-react';
+import { Sparkles, Guitar, Mic, Music, Radio, Library, Building2, Landmark, SlidersHorizontal, Save, RotateCcw, Trash2, PencilLine } from 'lucide-react';
 import type { Preset, ProcessorState } from '../types';
 import { presets as presetData } from '../presets';
 
@@ -7,6 +7,8 @@ interface PresetBarProps {
   onSelect: (preset: Preset) => void;
   onSave: () => void;
   onReset: () => void;
+  onDelete?: (preset: Preset) => void;
+  onRename?: (preset: Preset) => void;
   presets?: Preset[];
 }
 
@@ -22,7 +24,7 @@ const iconMap: Record<string, typeof Sparkles> = {
   SlidersHorizontal,
 };
 
-export function PresetBar({ activePresetId, onSelect, onSave, onReset, presets = [] }: PresetBarProps) {
+export function PresetBar({ activePresetId, onSelect, onSave, onReset, onDelete, onRename, presets = [] }: PresetBarProps) {
   const allPresets = [...presetData, ...presets];
   return (
     <div className="panel">
@@ -52,23 +54,61 @@ export function PresetBar({ activePresetId, onSelect, onSave, onReset, presets =
         {allPresets.map((preset) => {
           const Icon = iconMap[preset.icon] ?? Sparkles;
           const isActive = activePresetId === preset.id;
+          const isCustomPreset = preset.id.startsWith('custom-');
           return (
-            <button
+            <div
               key={preset.id}
-              onClick={() => onSelect(preset)}
-              className={`flex-shrink-0 w-36 p-3 rounded-lg border transition-all text-left group ${
+              className={`relative flex-shrink-0 w-36 rounded-lg border transition-all ${
                 isActive
                   ? 'border-cyan-400 bg-cyan-400/10 glow-cyan'
                   : 'border-[#2a3038] bg-[#0a0c10] hover:border-[#353c46] hover:bg-[#121519]'
               }`}
             >
-              <div className="flex items-center gap-2 mb-1">
-                <Icon size={16} className={isActive ? 'text-cyan-400' : 'text-[#5d6570] group-hover:text-[#9aa3af]'} />
-                <span className={`text-xs font-bold ${isActive ? 'text-cyan-400' : 'text-[#9aa3af]'}`}>{preset.name}</span>
-                {isActive && <span className="led led-on ml-auto" />}
-              </div>
-              <p className="text-[9px] text-[#5d6570] leading-tight line-clamp-2">{preset.description}</p>
-            </button>
+              <button
+                onClick={() => onSelect(preset)}
+                className="w-full p-3 text-left"
+              >
+                <div className="mb-1 flex items-center gap-2">
+                  <Icon size={16} className={isActive ? 'text-cyan-400' : 'text-[#5d6570] group-hover:text-[#9aa3af]'} />
+                  <span className={`text-xs font-bold ${isActive ? 'text-cyan-400' : 'text-[#9aa3af]'}`}>{preset.name}</span>
+                  {isActive && <span className="led led-on ml-auto" />}
+                </div>
+                <p className="text-[9px] text-[#5d6570] leading-tight line-clamp-2">{preset.description}</p>
+              </button>
+
+              {isCustomPreset && (
+                <div className="absolute right-2 top-2 flex gap-1">
+                  {onRename && (
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onRename(preset);
+                      }}
+                      className="rounded-md border border-cyan-500/30 bg-cyan-500/10 p-1 text-cyan-300 transition hover:bg-cyan-500/20"
+                      aria-label={`Renombrar preset ${preset.name}`}
+                      title="Renombrar preset personalizado"
+                    >
+                      <PencilLine size={10} />
+                    </button>
+                  )}
+                  {onDelete && (
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onDelete(preset);
+                      }}
+                      className="rounded-md border border-red-500/30 bg-red-500/10 p-1 text-red-300 transition hover:bg-red-500/20"
+                      aria-label={`Eliminar preset ${preset.name}`}
+                      title="Eliminar preset personalizado"
+                    >
+                      <Trash2 size={10} />
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           );
         })}
       </div>

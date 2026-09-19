@@ -12,6 +12,7 @@ dist/
 !.vscode/tasks.json
 
 # Android and Gradle build outputs
+.android-sdk/
 android/.gradle/
 android/local.properties
 android/build/

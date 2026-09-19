@@ -21,17 +21,7 @@ export interface PadPlaybackState {
   isPaused: boolean;
   currentTime: number;
   duration: number;
-}
-
-export interface LibraryPlaybackState {
-  fileName: string | null;
-  isPlaying: boolean;
-  isPaused: boolean;
-  currentTime: number;
-  duration: number;
   volume: number;
-  muted: boolean;
-  ended: boolean;
 }
 
 export interface AudioInputDevice {
@@ -56,7 +46,6 @@ export function useAudioEngine() {
   const bandFiltersRef = useRef<BiquadFilterNode[]>([]);
   const bandCompressorsRef = useRef<DynamicsCompressorNode[]>([]);
   const bandGainsRef = useRef<GainNode[]>([]);
-  const mediaElementRef = useRef<HTMLAudioElement | null>(null);
   const padAudioRefs = useRef<Array<HTMLAudioElement | null>>([null, null]);
   const padSourceRefs = useRef<Array<MediaElementAudioSourceNode | null>>([null, null]);
   const padUrlRefs = useRef<Array<string | null>>([null, null]);
@@ -76,20 +65,12 @@ export function useAudioEngine() {
     waveformData: new Array(WAVEFORM_POINTS).fill(0.5),
     isPlaying: false,
   });
+
   const [padPlayback, setPadPlayback] = useState<PadPlaybackState[]>([
-    { fileName: null, isPlaying: false, isPaused: false, currentTime: 0, duration: 0 },
-    { fileName: null, isPlaying: false, isPaused: false, currentTime: 0, duration: 0 },
+    { fileName: null, isPlaying: false, isPaused: false, currentTime: 0, duration: 0, volume: 1 },
+    { fileName: null, isPlaying: false, isPaused: false, currentTime: 0, duration: 0, volume: 1 },
   ]);
-  const [libraryPlayback, setLibraryPlayback] = useState<LibraryPlaybackState>({
-    fileName: null,
-    isPlaying: false,
-    isPaused: false,
-    currentTime: 0,
-    duration: 0,
-    volume: 1,
-    muted: false,
-    ended: false,
-  });
+
   const [audioInputDevices, setAudioInputDevices] = useState<AudioInputDevice[]>([]);
 
   const rafRef = useRef<number | null>(null);
@@ -121,7 +102,6 @@ export function useAudioEngine() {
     const ctx = audioCtxRef.current;
     if (!ctx) return;
 
-    // Disconnect old
     try {
       sourceRef.current?.disconnect();
       padSourceRefs.current.forEach((source) => source?.disconnect());
@@ -138,7 +118,6 @@ export function useAudioEngine() {
       // ignore
     }
 
-    // Input analyser
     const inputAnalyser = ctx.createAnalyser();
     inputAnalyser.fftSize = 256;
     inputAnalyserRef.current = inputAnalyser;
@@ -146,36 +125,29 @@ export function useAudioEngine() {
     const inputBus = ctx.createGain();
     inputBusRef.current = inputBus;
 
-    // AGC (compressor acting as AGC)
     const agc = ctx.createDynamicsCompressor();
     agcNodeRef.current = agc;
 
-    // Pre-emphasis (highshelf boost)
     const preEmph = ctx.createBiquadFilter();
     preEmph.type = 'highshelf';
     preEmph.frequency.value = 1000;
     preEmphasisFilterRef.current = preEmph;
 
-    // HF Limiter
     const hfLimiter = ctx.createDynamicsCompressor();
     hfLimiterRef.current = hfLimiter;
 
-    // Output analyser
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 512;
     analyser.smoothingTimeConstant = 0.7;
     analyserRef.current = analyser;
 
-    // Master clipper
     const clipper = ctx.createDynamicsCompressor();
     masterClipperRef.current = clipper;
 
-    // Output gain
     const outGain = ctx.createGain();
     outGain.gain.value = 1;
     outputGainRef.current = outGain;
 
-    // Mix primary input and both pad panels before the shared processing chain.
     if (sourceRef.current) {
       sourceRef.current.connect(inputBus);
     }
@@ -194,7 +166,6 @@ export function useAudioEngine() {
     const ctx = audioCtxRef.current;
     if (!ctx) return;
 
-    // AGC
     if (agcNodeRef.current) {
       const agc = agcNodeRef.current;
       if (state.agc.enabled) {
@@ -209,11 +180,9 @@ export function useAudioEngine() {
       }
     }
 
-    // Pre-emphasis
     if (preEmphasisFilterRef.current) {
       const pe = preEmphasisFilterRef.current;
       if (state.preEmphasis.enabled) {
-        // 50µs or 75µs — modeled as highshelf gain
         const boost = state.preEmphasis.standard === '50us' ? 6 : 8;
         pe.gain.value = boost;
       } else {
@@ -221,7 +190,6 @@ export function useAudioEngine() {
       }
     }
 
-    // HF Limiter
     if (hfLimiterRef.current) {
       const hfl = hfLimiterRef.current;
       if (state.preEmphasis.hfLimitEnabled) {
@@ -235,7 +203,6 @@ export function useAudioEngine() {
       }
     }
 
-    // Master clipper
     if (masterClipperRef.current) {
       const clip = masterClipperRef.current;
       if (state.clipper.enabled) {
@@ -249,7 +216,6 @@ export function useAudioEngine() {
       }
     }
 
-    // Output gain
     if (outputGainRef.current) {
       outputGainRef.current.gain.value = Math.pow(10, state.io.analogOutputGain / 20);
     }
@@ -282,7 +248,6 @@ export function useAudioEngine() {
       waveform.push(timeData[i * step] / 255);
     }
 
-    // Spectrum for display
     const spectrum = new Uint8Array(SPECTRUM_BINS);
     const spectrumStep = Math.floor(freqData.length / SPECTRUM_BINS);
     for (let i = 0; i < SPECTRUM_BINS; i++) {
@@ -315,17 +280,6 @@ export function useAudioEngine() {
       };
     }));
 
-    const libraryAudio = mediaElementRef.current;
-    if (libraryAudio) {
-      setLibraryPlayback((prev) => ({
-        ...prev,
-        isPlaying: !libraryAudio.paused && !libraryAudio.ended,
-        isPaused: libraryAudio.paused && libraryAudio.currentTime > 0 && !libraryAudio.ended,
-        currentTime: libraryAudio.currentTime,
-        duration: Number.isFinite(libraryAudio.duration) ? libraryAudio.duration : prev.duration,
-      }));
-    }
-
     rafRef.current = requestAnimationFrame(updateLevels);
   }, []);
 
@@ -335,10 +289,6 @@ export function useAudioEngine() {
   }, [updateLevels]);
 
   const stopPrimary = useCallback(() => {
-    if (mediaElementRef.current) {
-      mediaElementRef.current.pause();
-      mediaElementRef.current.currentTime = 0;
-    }
     if (oscRef.current) {
       try {
         oscRef.current.stop();
@@ -360,7 +310,6 @@ export function useAudioEngine() {
       }
       sourceRef.current = null;
     }
-    setLibraryPlayback((prev) => ({ ...prev, isPlaying: false, isPaused: false, currentTime: 0, ended: false }));
   }, []);
 
   const stopAll = useCallback(() => {
@@ -375,8 +324,8 @@ export function useAudioEngine() {
       padUrlRefs.current[index] = null;
     });
     setPadPlayback([
-      { fileName: null, isPlaying: false, isPaused: false, currentTime: 0, duration: 0 },
-      { fileName: null, isPlaying: false, isPaused: false, currentTime: 0, duration: 0 },
+      { fileName: null, isPlaying: false, isPaused: false, currentTime: 0, duration: 0, volume: 1 },
+      { fileName: null, isPlaying: false, isPaused: false, currentTime: 0, duration: 0, volume: 1 },
     ]);
   }, [stopPrimary]);
 
@@ -412,77 +361,12 @@ export function useAudioEngine() {
     if (audio) audio.currentTime = time;
   }, []);
 
-  const loadFile = useCallback(
-    (file: File, state: ProcessorState) => {
-      const ctx = ensureContext();
-      stopAll();
-
-      const url = URL.createObjectURL(file);
-      const audio = new Audio(url);
-      audio.crossOrigin = 'anonymous';
-      audio.loop = false;
-      audio.volume = libraryPlayback.volume;
-      audio.addEventListener('ended', () => {
-        URL.revokeObjectURL(url);
-        setLibraryPlayback((prev) => ({ ...prev, isPlaying: false, isPaused: false, currentTime: 0, ended: true }));
-      }, { once: true });
-      mediaElementRef.current = audio;
-
-      const source = ctx.createMediaElementSource(audio);
-      sourceRef.current = source;
-
-      buildChain();
-      applyState(state);
-      audio.play();
-      startLevelLoop();
-      setLibraryPlayback((prev) => ({ ...prev, fileName: file.name, isPlaying: true, isPaused: false, currentTime: 0, duration: 0, ended: false }));
-      setLevels((prev) => ({ ...prev, isPlaying: true }));
-    },
-    [ensureContext, stopAll, buildChain, applyState, startLevelLoop, libraryPlayback.volume]
-  );
-
-  const setLibraryVolume = useCallback((volume: number) => {
-    const nextVolume = Math.max(0, Math.min(1, volume));
-    if (mediaElementRef.current) mediaElementRef.current.volume = nextVolume;
-    setLibraryPlayback((prev) => ({ ...prev, volume: nextVolume, muted: nextVolume === 0 }));
+  const setPadVolume = useCallback((panelIndex: number, volume: number) => {
+    const nextVolume = Math.min(1, Math.max(0, volume));
+    const audio = padAudioRefs.current[panelIndex];
+    if (audio) audio.volume = nextVolume;
+    setPadPlayback((prev) => prev.map((pad, index) => index === panelIndex ? { ...pad, volume: nextVolume } : pad));
   }, []);
-
-  const toggleLibraryMute = useCallback(() => {
-    const audio = mediaElementRef.current;
-    if (!audio) return;
-    audio.muted = !audio.muted;
-    setLibraryPlayback((prev) => ({ ...prev, muted: audio.muted }));
-  }, []);
-
-  const nudgeLibrary = useCallback((seconds: number) => {
-    const audio = mediaElementRef.current;
-    if (!audio) return;
-    audio.currentTime = Math.max(0, Math.min(audio.duration || Infinity, audio.currentTime + seconds));
-  }, []);
-
-  const pauseLibrary = useCallback(() => {
-    const audio = mediaElementRef.current;
-    if (!audio) return;
-    audio.pause();
-    setLibraryPlayback((prev) => ({ ...prev, isPlaying: false, isPaused: audio.currentTime > 0 }));
-  }, []);
-
-  const resumeLibrary = useCallback(() => {
-    const audio = mediaElementRef.current;
-    if (!audio) return;
-    if (audio.ended) audio.currentTime = 0;
-    void audio.play();
-    setLibraryPlayback((prev) => ({ ...prev, isPlaying: true, isPaused: false, ended: false }));
-  }, []);
-
-  const seekLibrary = useCallback((time: number) => {
-    if (mediaElementRef.current) mediaElementRef.current.currentTime = time;
-  }, []);
-
-  const stopLibrary = useCallback(() => {
-    stopPrimary();
-    setLevels((prev) => ({ ...prev, isPlaying: false }));
-  }, [stopPrimary]);
 
   const playPad = useCallback(
     (file: File, state: ProcessorState, panelIndex: number) => {
@@ -510,6 +394,7 @@ export function useAudioEngine() {
       const audio = new Audio(url);
       audio.crossOrigin = 'anonymous';
       audio.loop = false;
+      audio.volume = padPlayback[panelIndex]?.volume ?? 1;
       audio.addEventListener('ended', () => {
         URL.revokeObjectURL(url);
         padAudioRefs.current[panelIndex] = null;
@@ -533,11 +418,11 @@ export function useAudioEngine() {
       audio.play();
       startLevelLoop();
       setPadPlayback((prev) => prev.map((pad, index) => index === panelIndex
-        ? { fileName: file.name, isPlaying: true, isPaused: false, currentTime: 0, duration: 0 }
+        ? { fileName: file.name, isPlaying: true, isPaused: false, currentTime: 0, duration: 0, volume: audio.volume }
         : pad));
       setLevels((prev) => ({ ...prev, isPlaying: true }));
     },
-    [ensureContext, stopPrimary, buildChain, applyState, startLevelLoop]
+    [ensureContext, stopPrimary, buildChain, applyState, startLevelLoop, padPlayback]
   );
 
   const startMic = useCallback(
@@ -584,7 +469,6 @@ export function useAudioEngine() {
       osc.frequency.value = 440;
       oscRef.current = osc;
 
-      // Add a gain to make tone audible but not too loud
       const gain = ctx.createGain();
       gain.gain.value = 0.15;
 
@@ -627,5 +511,5 @@ export function useAudioEngine() {
     };
   }, [stopAll]);
 
-  return { levels, padPlayback, libraryPlayback, audioInputDevices, refreshAudioInputDevices, loadFile, pauseLibrary, resumeLibrary, seekLibrary, stopLibrary, setLibraryVolume, toggleLibraryMute, nudgeLibrary, playPad, pausePad, resumePad, seekPad, stopPad, startMic, startTone, stop, applyState, ensureContext };
+  return { levels, padPlayback, audioInputDevices, refreshAudioInputDevices, playPad, pausePad, resumePad, seekPad, setPadVolume, stopPad, startMic, startTone, stop, applyState, ensureContext };
 }

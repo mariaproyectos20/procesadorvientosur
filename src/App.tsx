@@ -34,7 +34,7 @@ function App() {
   const [sourceFullscreen, setSourceFullscreen] = useState(false);
   const [selectedInputDeviceId, setSelectedInputDeviceId] = useState('');
 
-  const { levels, padPlayback, libraryPlayback, audioInputDevices, refreshAudioInputDevices, loadFile, pauseLibrary, resumeLibrary, seekLibrary, stopLibrary, setLibraryVolume, toggleLibraryMute, nudgeLibrary, playPad, pausePad, resumePad, seekPad, stopPad, startMic, startTone, stop, applyState, ensureContext } = useAudioEngine();
+  const { levels, padPlayback, audioInputDevices, refreshAudioInputDevices, playPad, pausePad, resumePad, seekPad, setPadVolume, stopPad, startMic, startTone, stop, applyState, ensureContext } = useAudioEngine();
   const stateRef = useRef(state);
   stateRef.current = state;
 
@@ -89,6 +89,30 @@ function App() {
     }
   }, [state, customPresets]);
 
+  const handleDeletePreset = useCallback((preset: Preset) => {
+    if (!preset.id.startsWith('custom-')) return;
+    if (!window.confirm(`¿Eliminar el preset "${preset.name}"?`)) return;
+
+    const nextPresets = customPresets.filter((item) => item.id !== preset.id);
+    localStorage.setItem('viento-sur-fm-custom-presets', JSON.stringify(nextPresets));
+    setCustomPresets(nextPresets);
+
+    if (activePresetId === preset.id) {
+      setActivePresetId(null);
+    }
+  }, [activePresetId, customPresets]);
+
+  const handleRenamePreset = useCallback((preset: Preset) => {
+    if (!preset.id.startsWith('custom-')) return;
+
+    const nextName = window.prompt('Nuevo nombre del preset:', preset.name)?.trim();
+    if (!nextName || nextName === preset.name) return;
+
+    const nextPresets = customPresets.map((item) => item.id === preset.id ? { ...item, name: nextName } : item);
+    localStorage.setItem('viento-sur-fm-custom-presets', JSON.stringify(nextPresets));
+    setCustomPresets(nextPresets);
+  }, [customPresets]);
+
   const handleStartMic = useCallback((s: ProcessorState) => {
     setSourceType('mic');
     setFileName(undefined);
@@ -135,22 +159,10 @@ function App() {
           onRefreshAudioInputDevices={() => { void refreshAudioInputDevices(); }}
           onStartTone={handleStartTone}
           onPlayPad={handlePlayPad}
-          onPlayLibrary={(file) => {
-            setSourceType('file');
-            setFileName(file.name);
-            loadFile(file, stateRef.current);
-          }}
-          onPauseLibrary={pauseLibrary}
-          onResumeLibrary={resumeLibrary}
-          onSeekLibrary={seekLibrary}
-          onStopLibrary={stopLibrary}
-          onSetLibraryVolume={setLibraryVolume}
-          onToggleLibraryMute={toggleLibraryMute}
-          onNudgeLibrary={nudgeLibrary}
-          libraryPlayback={libraryPlayback}
           onPausePad={pausePad}
           onResumePad={resumePad}
           onSeekPad={seekPad}
+          onSetPadVolume={setPadVolume}
           onStopPad={stopPad}
           onStop={handleStop}
           isPlaying={levels.isPlaying}
@@ -158,12 +170,12 @@ function App() {
           levels={levels}
           fileName={fileName}
           padPlayback={padPlayback}
-            isFullscreen={sourceFullscreen}
-            onToggleFullscreen={() => setSourceFullscreen((fullscreen) => !fullscreen)}
+          isFullscreen={sourceFullscreen}
+          onToggleFullscreen={() => setSourceFullscreen((fullscreen) => !fullscreen)}
         />
 
         {/* Preset bar */}
-        <PresetBar presets={[...customPresets]} activePresetId={activePresetId} onSelect={handlePreset} onSave={handleSave} onReset={handleReset} />
+        <PresetBar presets={[...customPresets]} activePresetId={activePresetId} onSelect={handlePreset} onSave={handleSave} onReset={handleReset} onDelete={handleDeletePreset} onRename={handleRenamePreset} />
 
         {/* Tab navigation */}
         <div className="panel overflow-hidden">

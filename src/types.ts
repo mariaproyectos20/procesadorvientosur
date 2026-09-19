@@ -1,7 +1,7 @@
 export type PreEmphasisStandard = '50us' | '75us';
 export type SampleRate = '48kHz' | '96kHz';
 export type BandCount = 3 | 5;
-export type AudioSourceType = 'file' | 'mic' | 'tone' | 'pad' | 'none';
+export type AudioSourceType = 'mic' | 'tone' | 'pad' | 'none';
 
 export interface AGCSettings {
   enabled: boolean;

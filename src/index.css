@@ -4,6 +4,10 @@
 @tailwind components;
 @tailwind utilities;
 
+button[title="Siguiente"] + button {
+  display: none;
+}
+
 :root {
   --bg-deep: #0a0c10;
   --bg-panel: #121519;
